@@ -129,27 +129,27 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict, include_tags: dict) -> dict:
 
     for instance_ids in chunks(list(sorted(instances.keys())), DESCRIBE_AUTO_SCALING_INSTANCES_LIMIT):
         response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instance_ids))
-        
+
         asgs = set()
         for instance in response['AutoScalingInstances']:
             asgs.add(instance['AutoScalingGroupName'])
-        
+
         asgresponse = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asgs))
         for asg in asgresponse['AutoScalingGroups']:
-            keep = include_tags == None
+            keep = include_tags is None
             name = asg['AutoScalingGroupName']
             for tag in asg['Tags']:
                 if tag['Key'] == 'autoscaled' and tag['Value'] == 'false':
                     logger.info('Not considering ASG {} due to explicitly having the autoscale=false tag'.format(name))
                     asgs.discard(name)
                     break
-                elif include_tags != None and tag['Key'] in include_tags and tag['Value'] == include_tags[tag['Key']]:
+                elif include_tags is not None and tag['Key'] in include_tags and tag['Value'] == include_tags[tag['Key']]:
                     keep = True
 
             if not keep:
                 logger.info('Not considering ASG {} due to not having the desired tags'.format(name))
                 asgs.discard(name)
-            
+
         for instance in response['AutoScalingInstances']:
             if instance['AutoScalingGroupName'] in asgs:
                 instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
@@ -411,7 +411,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict,
         for elem in elems:
             k, v = elem.split('=')
             include_tags[k] = v
-        
+
     api = get_kube_api()
 
     all_nodes = get_nodes(api, include_master_nodes)
