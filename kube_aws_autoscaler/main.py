@@ -119,7 +119,7 @@ def chunks(l: list, n: int):
         yield l[i:i + n]
 
 
-def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
+def get_nodes_by_asg_zone(autoscaling, nodes: dict, include_tags: dict) -> dict:
     # first map instance_id to node object for later look up
     instances = {}
     for node in nodes.values():
@@ -129,11 +129,29 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict) -> dict:
 
     for instance_ids in chunks(list(sorted(instances.keys())), DESCRIBE_AUTO_SCALING_INSTANCES_LIMIT):
         response = autoscaling.describe_auto_scaling_instances(InstanceIds=list(instance_ids))
+        
+        asgs = set()
         for instance in response['AutoScalingInstances']:
-            instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
-            instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
-            key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
-            nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
+            asgs.add(instance['AutoScalingGroupName'])
+        
+        asgresponse = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=list(asgs))
+        for asg in asgresponse['AutoScalingGroups']:
+            if include_tags != None:
+                for key in include_tags:
+                    if not key in asg['Tags'] or asg['Tags'][key] != include_tags[key]:
+                        logger.info('Not considering ASG {} due to not having the desired tags'.format(asg))
+                        asgs.remove(asg)
+                        break
+            if 'autoscale' in asg['Tags'] and asg['Tags']['autoscale'] == 'false':
+               logger.info('Not considering ASG {} due to expliclty having the autoscale=false tag'.format(asg))
+               asgs.remove(asg)
+            
+        for instance in response['AutoScalingInstances']:
+            if instance['AutoScalingGroupName'] in asgs:
+                instances[instance['InstanceId']]['asg_name'] = instance['AutoScalingGroupName']
+                instances[instance['InstanceId']]['asg_lifecycle_state'] = instance['LifecycleState']
+                key = instance['AutoScalingGroupName'], instance['AvailabilityZone']
+                nodes_by_asg_zone[key].append(instances[instance['InstanceId']])
     return nodes_by_asg_zone
 
 
@@ -380,13 +398,22 @@ def start_health_endpoint():
 def autoscale(buffer_percentage: dict, buffer_fixed: dict,
               scale_down_step_fixed: int, scale_down_step_percentage: float,
               buffer_spare_nodes: int = 0, include_master_nodes: bool=False,
-              dry_run: bool=False, disable_scale_down: bool=False):
+              dry_run: bool=False, disable_scale_down: bool=False,
+              only_tagged: str=''):
+    include_tags = None
+    if only_tagged != '':
+        include_tags = {}
+        elems = only_tagged.split(',')
+        for elem in elems:
+            k, v = elem.split('=')
+            include_tags[k] = v
+    
     api = get_kube_api()
 
     all_nodes = get_nodes(api, include_master_nodes)
     region = list(all_nodes.values())[0]['region']
     autoscaling = boto3.client('autoscaling', region)
-    nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, all_nodes)
+    nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, all_nodes, include_tags)
 
     # we only consider nodes found in an ASG (old "ghost" nodes returned from Kubernetes API are ignored)
     nodes_by_name = get_nodes_by_name(itertools.chain(*nodes_by_asg_zone.values()))
@@ -408,6 +435,7 @@ def main():
     parser.add_argument('--debug', '-d', help='Debug mode: print more information', action='store_true')
     parser.add_argument('--once', help='Run loop only once and exit', action='store_true')
     parser.add_argument('--interval', type=int, help='Loop interval (default: 60s)', default=60)
+    parser.add_argument('--only-tagged', type=str, help='Only consider autoscaling groups with the given tag (default: all groups)', default='')
     parser.add_argument('--include-master-nodes', help='Do not ignore auto scaling group with master nodes',
                         action='store_true')
     parser.add_argument('--buffer-spare-nodes', type=int,
@@ -467,7 +495,8 @@ def main():
                       scale_down_step_percentage=args.scale_down_step_percentage,
                       buffer_spare_nodes=args.buffer_spare_nodes,
                       include_master_nodes=args.include_master_nodes, dry_run=args.dry_run,
-                      disable_scale_down=args.no_scale_down)
+                      disable_scale_down=args.no_scale_down,
+                      only_tagged=args.only_tagged)
         except Exception:
             global Healthy
             Healthy = False
