@@ -139,7 +139,7 @@ def get_nodes_by_asg_zone(autoscaling, nodes: dict, include_tags: dict) -> dict:
             keep = include_tags is None
             name = asg['AutoScalingGroupName']
             for tag in asg['Tags']:
-                if tag['Key'] == 'autoscaled' and tag['Value'] == 'false':
+                if tag['Key'] == 'kube_aws_autoscale' and tag['Value'] == 'false':
                     logger.info('Not considering ASG {} due to explicitly having the autoscale=false tag'.format(name))
                     asgs.discard(name)
                     break
