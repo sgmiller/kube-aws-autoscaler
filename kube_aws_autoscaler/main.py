@@ -392,7 +392,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict,
     region = list(all_nodes.values())[0]['region']
     autoscaling = boto3.client('autoscaling', region)
     nodes_by_asg_zone = get_nodes_by_asg_zone(autoscaling, all_nodes)
-    
+
     # we only consider nodes found in an ASG (old "ghost" nodes returned from Kubernetes API are ignored)
     nodes_by_name = get_nodes_by_name(itertools.chain(*nodes_by_asg_zone.values()))
 
