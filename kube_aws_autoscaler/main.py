@@ -197,7 +197,7 @@ def format_resource(value: float, resource: str):
     return '{:.0f}'.format(value)
 
 
-def slow_down_downscale(autoscaling, current_desired_size: int, asg_sizes: dict, nodes_by_asg_zone: dict, scale_down_step_fixed: int, scale_down_step_percentage: float):
+def slow_down_downscale(autoscaling, asg_sizes: dict, nodes_by_asg_zone: dict, scale_down_step_fixed: int, scale_down_step_percentage: float):
     # validate scale-down-step-fixed, must be >= 1
     if scale_down_step_fixed < 1:
         raise ValueError('scale-down-step-fixed must be >= 1')
@@ -221,7 +221,7 @@ def slow_down_downscale(autoscaling, current_desired_size: int, asg_sizes: dict,
                 # percentage amount is too small, make sure we downscale by fixed amount at least
                 new_desired_size_percentage = new_desired_size_fixed
             current_desired_capacity = get_asg_desired_capacity(autoscaling, asg_name)
-            new_desired_size = min(new_desired_size_fixed, new_desired_size_percentage, current_desired_size)
+            new_desired_size = min(new_desired_size_fixed, new_desired_size_percentage, current_desired_capacity)
             logger.info('Slowing down downscale: changing desired size of ASG {} (current size is {}) from {} to {}'.format(
                         asg_name, current_size, desired_size, new_desired_size))
             asg_sizes[asg_name] = new_desired_size
@@ -402,7 +402,7 @@ def autoscale(buffer_percentage: dict, buffer_fixed: dict,
     usage_by_asg_zone = calculate_usage_by_asg_zone(pods, nodes_by_name)
     asg_size = calculate_required_auto_scaling_group_sizes(nodes_by_asg_zone, usage_by_asg_zone, buffer_percentage, buffer_fixed,
                                                            buffer_spare_nodes=buffer_spare_nodes, disable_scale_down=disable_scale_down)
-    asg_size = slow_down_downscale(autoscaling, asg_size, nodes_by_asg_zone, scale_down_step_fixed, scale_down_step_percentage, current_desired_capacity)
+    asg_size = slow_down_downscale(autoscaling, asg_size, nodes_by_asg_zone, scale_down_step_fixed, scale_down_step_percentage)
     ready_nodes_by_asg = get_ready_nodes_by_asg(nodes_by_asg_zone)
     resize_auto_scaling_groups(autoscaling, asg_size, ready_nodes_by_asg, dry_run)
 
